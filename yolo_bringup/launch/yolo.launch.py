@@ -34,7 +34,25 @@ def generate_launch_description():
         use_3d = eval(context.perform_substitution(use_3d))
 
         share_dir = get_package_share_directory("yolo_ros")
-        subprocess.run(["uv", "sync", "--project", share_dir], check=True)
+        # LOCAL PATCH (2026-08-16). `uv sync` provisions this package's five
+        # pyproject dependencies -- ultralytics, lap, numpy<2,
+        # opencv-python-headless, typing-extensions -- into a private .venv, and
+        # nothing else. It runs at launch-DESCRIPTION time with check=True, so a
+        # missing `uv` is not a node that fails to start: it is an exception out
+        # of generate_launch_description() that takes the WHOLE cell down. That
+        # cost a bring-up, and it is why tari_bringup guards this launch file
+        # behind a `command_available("uv")` check.
+        #
+        # Those dependencies are in the container image now, so the venv is
+        # redundant here. Skip the sync when they already import; still run it
+        # when they do not, so an environment that really does need the venv
+        # behaves as upstream intends. glob() then returns [] and PYTHONPATH is
+        # left alone, which is exactly right -- the interpreter already has them.
+        try:
+            import ultralytics  # noqa: F401
+            import lap  # noqa: F401
+        except ImportError:
+            subprocess.run(["uv", "sync", "--project", share_dir], check=True)
         venv_site_pkgs = glob.glob(
             os.path.join(share_dir, ".venv", "lib", "python*", "site-packages")
         )
